@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bình Chọn Mẫu Áo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .selected-vote {
+            border: 3px solid #4CAF50 !important; /* Green border for selected */
+            box-shadow: 0 0 10px #4CAF50;
+        }
+        .disabled-button {
+            background-color: #9ca3af !important; /* Gray background */
+            cursor: not-allowed !important;
+        }
+        .winner {
+            border: 3px solid gold !important;
+            box-shadow: 0 0 15px gold;
+            background-color: #fffbea; /* Light yellow background */
+        }
+        .modal {
+            display: none; /* Hidden by default */
+            position: fixed; /* Stay in place */
+            z-index: 100; /* Sit on top */
+            left: 0;
+            top: 0;
+            width: 100%; /* Full width */
+            height: 100%; /* Full height */
+            overflow: auto; /* Enable scroll if needed */
+            background-color: rgb(0,0,0); /* Fallback color */
+            background-color: rgba(0,0,0,0.4); /* Black w/ opacity */
+            padding-top: 60px;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto; /* 5% from the top and centered */
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%; /* Could be more or less, depending on screen size */
+            max-width: 500px;
+            border-radius: 0.5rem;
+            text-align: center;
+        }
+        .modal-buttons button {
+            margin: 0 10px;
+        }
+        /* Style for image to ensure it fits well */
+        .design-image {
+            width: 100%;
+            height: 256px; /* Corresponds to h-64 in Tailwind */
+            object-fit: contain; /* Changed from 'cover' to 'contain' to show full image */
+            background-color: #f9fafb; /* Added a light background for images that don't fill space */
+            border: 1px solid #e5e7eb; /* Added a light border */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 p-4 md:p-8">
+
+    <div class="container mx-auto max-w-7xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-indigo-600">Bình Chọn Mẫu Áo Đồng Phục</h1>
+            <p class="text-gray-600 mt-2">Mỗi người có 3 lượt bình chọn. Chọn mẫu bạn yêu thích nhất!</p>
+            <p class="mt-1 text-sm text-gray-500">ID Người dùng Firebase: <span id="firebaseUserId" class="font-mono">Đang tải...</span></p>
+        </header>
+
+        <!-- Voter Selection -->
+        <div class="mb-8 p-6 bg-white rounded-lg shadow-md">
+            <label for="voterSelect" class="block text-lg font-medium text-gray-700 mb-2">Chọn người bình chọn:</label>
+            <div class="flex flex-col sm:flex-row items-center gap-4">
+                <select id="voterSelect" class="block w-full sm:w-1/2 p-3 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500">
+                    <option value="">-- Chọn tên của bạn --</option>
+                </select>
+                <div class="sm:ml-4 text-center sm:text-left">
+                    <p class="text-gray-700">Số lượt còn lại: <span id="votesRemaining" class="font-bold text-xl text-green-600">3</span></p>
+                </div>
+            </div>
+             <div class="mt-4 flex flex-wrap gap-2">
+                <button id="resetVoterVotesBtn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded-md shadow disabled-button" disabled>Hoàn tác phiếu của bạn</button>
+            </div>
+        </div>
+
+        <!-- T-Shirt Designs Grid -->
+        <div id="designsGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            <!-- Designs will be populated here by JavaScript -->
+        </div>
+
+        <!-- Results Summary -->
+        <div class="mt-12 p-6 bg-white rounded-lg shadow-md">
+            <h2 class="text-2xl font-bold text-center text-indigo-600 mb-6">Kết Quả Bình Chọn Hiện Tại</h2>
+            <div id="resultsSummary" class="space-y-2">
+                <!-- Results will be populated here -->
+            </div>
+            <div class="mt-6 text-center">
+                <h3 class="text-xl font-semibold">Mẫu thắng cuộc: <span id="winningDesign" class="text-green-600">Đang cập nhật...</span></h3>
+            </div>
+            <!-- Removed Reset All Votes Button Section -->
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmationModal" class="modal">
+        <div class="modal-content">
+            <p id="modalMessageText" class="text-lg mb-6">Bạn có chắc chắn muốn tiếp tục?</p>
+            <div class="modal-buttons">
+                <button id="confirmActionBtn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-6 rounded-md">Có</button>
+                <button id="cancelActionBtn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-6 rounded-md">Không</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        // Firebase imports
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserLocalPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, query, writeBatch, getDocs, runTransaction, deleteDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // IMPORTANT: Replace with your actual Firebase configuration if you have one.
+        // Canvas will try to provide this automatically if __firebase_config is available.
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "YOUR_API_KEY", // Replace if needed
+            authDomain: "YOUR_AUTH_DOMAIN", // Replace if needed
+            projectId: "YOUR_PROJECT_ID", // Replace if needed
+            storageBucket: "YOUR_STORAGE_BUCKET", // Replace if needed
+            messagingSenderId: "YOUR_MESSAGING_SENDER_ID", // Replace if needed
+            appId: "YOUR_APP_ID" // Replace if needed
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        // setLogLevel('debug'); // Uncomment for Firestore debugging
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-shirt-vote-app';
+        let currentUserId = null; // Firebase UID
+        let selectedVoterName = null; // Name from the dropdown
+
+        const voters = ["Nhật", "Nghị", "Hậu", "Vũ", "Hồng", "Lê", "Phước", "Nhân", "Tuấn", "Việt", "Sơn", "Phúc"];
+        const designs = [
+            { id: "design_1", name: "Mẫu 1 (Hậu)", originalFileName: "hau-mau-1-.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/hau-mau-1-.jpg" },
+            { id: "design_2", name: "Mẫu 2 (Hồng)", originalFileName: "hong-mau-11.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/hong-mau-11.jpg" },
+            { id: "design_3", name: "Mẫu 3 (Hồng)", originalFileName: "hong-mau-1.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/hong-mau-1.jpg" },
+            { id: "design_4", name: "Mẫu 4 (Hồng - Lưng)", originalFileName: "hong-mau-1_mat-lung.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/hong-mau-1_mat-lung.jpg" },
+            { id: "design_5", name: "Mẫu 5 (Hồng)", originalFileName: "hong-mau-2.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/hong-mau-2.jpg" },
+            { id: "design_6", name: "Mẫu 6 (Nghi)", originalFileName: "nghi-1.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/nghi-1.jpg" },
+            { id: "design_7", name: "Mẫu 7 (Nghi)", originalFileName: "nghi-2.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/nghi-2.jpg" },
+            { id: "design_8", name: "Mẫu 8 (Nhân)", originalFileName: "nhan-1.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/nhan-1.jpg" },
+            { id: "design_9", name: "Mẫu 9 (Nhân)", originalFileName: "nhan-2.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/nhan-2.jpg" },
+            { id: "design_10", name: "Mẫu 10 (Nhân)", originalFileName: "nhan-3.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/nhan-3.jpg" },
+            { id: "design_11", name: "Mẫu 11 (Phúc)", originalFileName: "phuc-1.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/phuc-1.jpg" },
+            { id: "design_12", name: "Mẫu 12 (Phước)", originalFileName: "phuoc-1.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/phuoc-1.jpg" },
+            { id: "design_13", name: "Mẫu 13 (Phước)", originalFileName: "phuoc-2.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/phuoc-2.jpg" },
+            { id: "design_14", name: "Mẫu 14 (Phước)", originalFileName: "phuoc-mau-1.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/phuoc-mau-1.jpg" },
+            { id: "design_15", name: "Mẫu 15 (Sơn)", originalFileName: "son-mau-1.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/son-mau-1.jpg" },
+            { id: "design_16", name: "Mẫu 16 (Tuấn)", originalFileName: "tuan.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/tuan.jpg" },
+            { id: "design_17", name: "Mẫu 17 (Vũ - Lưng)", originalFileName: "vu-1_mat-lung.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/vu-1_mat-lung.jpg" },
+            { id: "design_18", name: "Mẫu 18 (Vũ)", originalFileName: "vu-mau-1.jpg", placeholderUrl: "https://kysuantoan.wordpress.com/wp-content/uploads/2025/06/vu-mau-1.jpg" },
+        ];
+
+        const designsGrid = document.getElementById('designsGrid');
+        const voterSelect = document.getElementById('voterSelect');
+        const votesRemainingEl = document.getElementById('votesRemaining');
+        const resultsSummaryEl = document.getElementById('resultsSummary');
+        const winningDesignEl = document.getElementById('winningDesign');
+        const resetVoterVotesBtn = document.getElementById('resetVoterVotesBtn');
+        // Removed resetAllVotesBtn constant
+        const firebaseUserIdEl = document.getElementById('firebaseUserId');
+
+        // Modal elements
+        const confirmationModal = document.getElementById('confirmationModal');
+        const modalMessageText = document.getElementById('modalMessageText');
+        const confirmActionBtn = document.getElementById('confirmActionBtn');
+        const cancelActionBtn = document.getElementById('cancelActionBtn');
+        let currentActionToConfirm = null;
+
+
+        // Firestore paths
+        const VOTERS_CHOICES_COLLECTION = `/artifacts/${appId}/public/data/voters_choices_v2`;
+        const DESIGN_VOTES_COLLECTION = `/artifacts/${appId}/public/data/design_votes_v2`;
+
+        // --- Authentication ---
+        onAuthStateChanged(auth, user => {
+            if (user) {
+                currentUserId = user.uid;
+                firebaseUserIdEl.textContent = currentUserId;
+                console.log("User is signed in with UID:", currentUserId);
+                initializeVotingData();
+                loadVotersDropdown();
+                listenToAllVotes(); 
+            } else {
+                console.log("User is signed out. Attempting to sign in.");
+                firebaseUserIdEl.textContent = "Chưa đăng nhập";
+                signIn();
+            }
+        });
+
+        async function signIn() {
+            try {
+                await setPersistence(auth, browserLocalPersistence); // Persist auth state
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                    console.log("Signed in with custom token.");
+                } else {
+                    await signInAnonymously(auth);
+                    console.log("Signed in anonymously.");
+                }
+            } catch (error) {
+                console.error("Error during sign-in:", error);
+                firebaseUserIdEl.textContent = "Lỗi đăng nhập";
+                // Avoid using alert()
+                const voterSelectDiv = document.getElementById('voterSelect').parentNode.parentNode;
+                const errorMsg = document.createElement('p');
+                errorMsg.textContent = `Lỗi đăng nhập: ${error.message}. Vui lòng thử làm mới trang.`;
+                errorMsg.className = 'text-red-500 text-sm mt-2';
+                voterSelectDiv.appendChild(errorMsg);
+            }
+        }
+
+
+        // --- Modal Logic ---
+        function showModal(message, onConfirm) {
+            modalMessageText.textContent = message;
+            confirmationModal.style.display = 'block';
+            currentActionToConfirm = onConfirm;
+        }
+
+        confirmActionBtn.onclick = () => {
+            if (currentActionToConfirm) {
+                currentActionToConfirm();
+            }
+            closeModal();
+        };
+
+        cancelActionBtn.onclick = () => {
+            closeModal();
+        };
+
+        function closeModal() {
+            confirmationModal.style.display = 'none';
+            currentActionToConfirm = null;
+        }
+
+        window.onclick = (event) => { // Close modal if clicked outside
+            if (event.target == confirmationModal) {
+                closeModal();
+            }
+        };
+        
+        // --- Initialization ---
+        async function initializeVotingData() {
+            if (!currentUserId) {
+                console.error("Cannot initialize data: currentUserId is null.");
+                return;
+            }
+            // Initialize design documents if they don't exist
+            const batch = writeBatch(db);
+            let designsInitialized = false;
+            for (const design of designs) {
+                const designDocRef = doc(db, DESIGN_VOTES_COLLECTION, design.id);
+                // Only set if it doesn't exist or to ensure structure
+                // For simplicity in this example, we'll just set it.
+                // A more robust approach might check for existence first if structure is complex.
+                batch.set(designDocRef, { name: design.name, votes: 0 }, { merge: true });
+                designsInitialized = true;
+            }
+            if (designsInitialized) {
+               try {
+                    await batch.commit();
+                    console.log("Design documents initialized/updated in Firestore.");
+                } catch (error) {
+                    console.error("Error initializing design documents:", error);
+                }
+            }
+            populateDesignsGrid(); // Populate grid after potential init
+        }
+
+
+        function loadVotersDropdown() {
+            voters.forEach(voterName => {
+                const option = document.createElement('option');
+                option.value = voterName;
+                option.textContent = voterName;
+                voterSelect.appendChild(option);
+            });
+        }
+
+        function populateDesignsGrid() {
+            designsGrid.innerHTML = ''; // Clear existing
+            designs.forEach(design => {
+                const card = document.createElement('div');
+                card.className = 'bg-white p-4 rounded-lg shadow-lg border-2 border-transparent transition-all duration-200 ease-in-out flex flex-col'; // Added flex flex-col
+                card.innerHTML = `
+                    <img src="${design.placeholderUrl}" alt="${design.name}" class="design-image rounded-md mb-4" onerror="this.onerror=null;this.src='https://placehold.co/300x400/ccc/888?text=Lỗi+Ảnh';this.classList.add('object-contain'); this.classList.remove('object-cover');">
+                    <div class="flex-grow"> <!-- Added for text content to take remaining space -->
+                        <h3 class="text-lg font-semibold text-gray-900 mb-1">${design.name}</h3>
+                        <p class="text-xs text-gray-500 mb-2">Tệp gốc: ${design.originalFileName || 'N/A'}</p>
+                        <p class="text-indigo-600 font-bold mb-3">Lượt bình chọn: <span id="votes-${design.id}">0</span></p>
+                    </div>
+                    <button data-design-id="${design.id}" class="vote-btn w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-md shadow transition-colors duration-150 mt-auto">Bình chọn</button> <!-- Added mt-auto -->
+                `;
+                designsGrid.appendChild(card);
+            });
+            addVoteButtonListeners();
+            if(selectedVoterName) updateUIForVoter(selectedVoterName); // Re-apply UI if voter already selected
+        }
+        
+        // --- Event Listeners ---
+        voterSelect.addEventListener('change', async (e) => {
+            selectedVoterName = e.target.value;
+            if (selectedVoterName) {
+                await loadVoterState(selectedVoterName);
+                resetVoterVotesBtn.classList.remove('disabled-button');
+                resetVoterVotesBtn.disabled = false;
+            } else {
+                votesRemainingEl.textContent = '3';
+                resetVoterVotesBtn.classList.add('disabled-button');
+                resetVoterVotesBtn.disabled = true;
+                // Reset button states for all designs if no voter is selected
+                 document.querySelectorAll('.vote-btn').forEach(btn => {
+                    btn.disabled = true;
+                    btn.textContent = 'Chọn người bình chọn';
+                    btn.classList.add('disabled-button');
+                });
+                document.querySelectorAll('.selected-vote').forEach(card => {
+                    card.classList.remove('selected-vote');
+                });
+            }
+        });
+
+        function addVoteButtonListeners() {
+            document.querySelectorAll('.vote-btn').forEach(button => {
+                button.addEventListener('click', async () => {
+                    if (!selectedVoterName) {
+                        showModal("Vui lòng chọn tên của bạn từ danh sách thả xuống trước khi bình chọn.", () => {});
+                        return;
+                    }
+                    const designId = button.dataset.designId;
+                    await handleVote(designId);
+                });
+            });
+        }
+
+        resetVoterVotesBtn.addEventListener('click', () => {
+            if (!selectedVoterName) {
+                showModal("Vui lòng chọn tên của bạn để hoàn tác phiếu.", () => {});
+                return;
+            }
+            showModal(`Bạn có chắc chắn muốn hoàn tác TẤT CẢ phiếu bầu cho ${selectedVoterName} không? Hành động này sẽ khôi phục 3 lượt bình chọn của ${selectedVoterName}.`, 
+                async () => {
+                    await resetVotesForVoter(selectedVoterName);
+                }
+            );
+        });
+        
+        // Removed event listener for resetAllVotesBtn
+
+        // --- Voting Logic ---
+        async function loadVoterState(voterName) {
+            if (!currentUserId) return;
+            const voterDocRef = doc(db, VOTERS_CHOICES_COLLECTION, voterName);
+            try {
+                const docSnap = await getDoc(voterDocRef);
+                if (docSnap.exists()) {
+                    const voterData = docSnap.data();
+                    votesRemainingEl.textContent = voterData.votesRemaining !== undefined ? voterData.votesRemaining : 3;
+                    updateUIForVoter(voterName, voterData.votesMade || []);
+                } else {
+                    // Initialize voter if not exists
+                    await setDoc(voterDocRef, { name: voterName, votesMade: [], votesRemaining: 3 });
+                    votesRemainingEl.textContent = '3';
+                    updateUIForVoter(voterName, []);
+                }
+            } catch (error) {
+                console.error(`Error loading state for voter ${voterName}:`, error);
+                showModal(`Không thể tải trạng thái của ${voterName}. Vui lòng thử lại.`, () => {});
+                votesRemainingEl.textContent = 'N/A';
+            }
+        }
+        
+        async function handleVote(designId) {
+            if (!selectedVoterName || !currentUserId) {
+                 showModal("Lỗi: Người bình chọn hoặc ID người dùng không hợp lệ. Vui lòng chọn lại tên của bạn.", () => {});
+                return;
+            }
+
+            const voterDocRef = doc(db, VOTERS_CHOICES_COLLECTION, selectedVoterName);
+            const designDocRef = doc(db, DESIGN_VOTES_COLLECTION, designId);
+
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const voterDoc = await transaction.get(voterDocRef);
+                    const designDoc = await transaction.get(designDocRef);
+
+                    if (!voterDoc.exists()) {
+                        // Initialize voter if somehow not created yet
+                        transaction.set(voterDocRef, { name: selectedVoterName, votesMade: [], votesRemaining: 3 });
+                        // Voter has 3 votes now, let them vote
+                    }
+                    
+                    const voterData = voterDoc.exists() ? voterDoc.data() : { name: selectedVoterName, votesMade: [], votesRemaining: 3 };
+                    let { votesMade = [], votesRemaining = 3 } = voterData;
+
+                    const designData = designDoc.exists() ? designDoc.data() : { name: designs.find(d=>d.id === designId)?.name || "Không rõ tên", votes: 0};
+                    let { votes = 0 } = designData;
+
+
+                    const alreadyVotedForThis = votesMade.includes(designId);
+                    let voteMessage = "";
+
+                    if (alreadyVotedForThis) {
+                        // Unvote: Remove vote from design, add back to voter's remaining, remove from votesMade
+                        votesMade = votesMade.filter(id => id !== designId);
+                        votesRemaining++;
+                        votes--;
+                        voteMessage = `${selectedVoterName} đã hủy bình chọn cho ${designData.name || designId}.`;
+                    } else {
+                        // Vote: Check if votes remaining
+                        if (votesRemaining <= 0) {
+                            voteMessage = `${selectedVoterName} đã hết lượt bình chọn.`;
+                            showModal(voteMessage, () => {});
+                            throw new Error("No votes remaining"); // Abort transaction
+                        }
+                        votesMade.push(designId);
+                        votesRemaining--;
+                        votes++;
+                        voteMessage = `${selectedVoterName} đã bình chọn cho ${designData.name || designId}.`;
+                    }
+                    
+                    // Ensure votes don't go below zero if unvoting something not voted for (edge case)
+                    if (votes < 0) votes = 0;
+
+                    transaction.update(voterDocRef, { votesMade, votesRemaining });
+                    transaction.set(designDocRef, { name: designData.name, votes }, { merge: true }); // Use set with merge to ensure 'name' is present
+                    showModal(voteMessage, () => {}); // Show vote confirmation
+                });
+                
+                // After transaction, update UI based on latest voter state
+                await loadVoterState(selectedVoterName); // This will also call updateUIForVoter
+
+            } catch (error) {
+                console.error("Lỗi giao dịch bình chọn:", error);
+                if (error.message !== "No votes remaining") { // Don't show generic alert if it was due to no votes
+                     showModal(`Đã xảy ra lỗi khi xử lý bình chọn của bạn cho ${designId}. Vui lòng thử lại.`, () => {});
+                }
+                // Optionally, reload voter state to ensure UI consistency if transaction failed partially before commit
+                await loadVoterState(selectedVoterName);
+            }
+        }
+
+        function updateUIForVoter(voterName, votesMade = []) {
+            if (!voterName) { // No voter selected
+                 document.querySelectorAll('.vote-btn').forEach(btn => {
+                    btn.disabled = true;
+                    btn.textContent = 'Chọn người bình chọn';
+                    btn.classList.add('disabled-button');
+                });
+                document.querySelectorAll('.selected-vote').forEach(card => {
+                    card.classList.remove('selected-vote');
+                });
+                votesRemainingEl.textContent = '3'; // Or whatever default
+                return;
+            }
+
+            const voterDocRef = doc(db, VOTERS_CHOICES_COLLECTION, voterName);
+            getDoc(voterDocRef).then(docSnap => {
+                let currentVotesMade = [];
+                let currentVotesRemaining = 3;
+
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    currentVotesMade = data.votesMade || [];
+                    currentVotesRemaining = data.votesRemaining !== undefined ? data.votesRemaining : 3;
+                }
+                
+                votesRemainingEl.textContent = currentVotesRemaining;
+
+                document.querySelectorAll('.vote-btn').forEach(btn => {
+                    const designId = btn.dataset.designId;
+                    const card = btn.closest('div.bg-white'); // Get the parent card more specifically
+
+                    if (currentVotesMade.includes(designId)) {
+                        btn.textContent = 'Hủy bình chọn';
+                        btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-700');
+                        btn.classList.add('bg-red-500', 'hover:bg-red-600');
+                        btn.disabled = false;
+                        btn.classList.remove('disabled-button');
+                        card.classList.add('selected-vote');
+                    } else {
+                        btn.textContent = 'Bình chọn';
+                        btn.classList.remove('bg-red-500', 'hover:bg-red-600');
+                        btn.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+                        card.classList.remove('selected-vote');
+                        if (currentVotesRemaining <= 0) {
+                            btn.disabled = true;
+                            btn.classList.add('disabled-button');
+                            btn.textContent = 'Hết lượt';
+                        } else {
+                            btn.disabled = false;
+                            btn.classList.remove('disabled-button');
+                        }
+                    }
+                });
+            }).catch(error => console.error("Error fetching voter data for UI update:", error));
+        }
+
+        // --- Realtime Vote Updates & Results ---
+        function listenToAllVotes() {
+            if (!currentUserId) return;
+            const q = query(collection(db, DESIGN_VOTES_COLLECTION));
+            
+            onSnapshot(q, (querySnapshot) => {
+                const allDesignsVotes = [];
+                let maxVotes = -1;
+
+                querySnapshot.forEach((docSnap) => {
+                    const designData = docSnap.data();
+                    const designId = docSnap.id;
+                    const votes = designData.votes || 0;
+                    
+                    allDesignsVotes.push({ id: designId, name: designData.name || `Mẫu ${designId.split('_')[1]}`, votes: votes });
+                    
+                    // Update individual vote counts on cards
+                    const voteSpan = document.getElementById(`votes-${designId}`);
+                    if (voteSpan) {
+                        voteSpan.textContent = votes;
+                    }
+                    if (votes > maxVotes) {
+                        maxVotes = votes;
+                    }
+                });
+
+                // Sort for display in results summary
+                allDesignsVotes.sort((a, b) => b.votes - a.votes);
+
+                updateResultsSummary(allDesignsVotes, maxVotes);
+                if (selectedVoterName) { // Re-apply UI states if a voter is selected, considering updated global votes
+                    loadVoterState(selectedVoterName);
+                }
+
+            }, (error) => {
+                console.error("Error listening to vote updates:", error);
+                showModal("Không thể tải kết quả bình chọn theo thời gian thực. Vui lòng kiểm tra kết nối của bạn.", () => {});
+            });
+        }
+
+        function updateResultsSummary(allDesignsVotes, maxVotes) {
+            resultsSummaryEl.innerHTML = ''; // Clear previous results
+            let winningDesignsNames = [];
+
+            if (allDesignsVotes.length === 0) {
+                resultsSummaryEl.innerHTML = '<p class="text-gray-500">Chưa có bình chọn nào.</p>';
+                winningDesignEl.textContent = 'Chưa có';
+                return;
+            }
+            
+            allDesignsVotes.forEach(design => {
+                const resultItem = document.createElement('div');
+                resultItem.className = `p-3 rounded-md flex justify-between items-center ${design.votes === maxVotes && maxVotes > 0 ? 'bg-green-100 border-l-4 border-green-500' : 'bg-gray-50'}`;
+                resultItem.innerHTML = `
+                    <span class="font-medium">${design.name}</span>
+                    <span class="font-bold text-indigo-600">${design.votes} phiếu</span>
+                `;
+                resultsSummaryEl.appendChild(resultItem);
+
+                // Highlight winning cards in the grid
+                const cardInGrid = document.querySelector(`.vote-btn[data-design-id="${design.id}"]`)?.closest('div.bg-white');
+                if (cardInGrid) {
+                    if (design.votes === maxVotes && maxVotes > 0) {
+                        cardInGrid.classList.add('winner');
+                        winningDesignsNames.push(design.name);
+                    } else {
+                        cardInGrid.classList.remove('winner');
+                    }
+                }
+            });
+
+            if (winningDesignsNames.length > 0) {
+                winningDesignEl.textContent = winningDesignsNames.join(', ');
+            } else {
+                winningDesignEl.textContent = 'Chưa có mẫu nào dẫn đầu / Chưa có phiếu';
+            }
+        }
+        
+        // --- Reset Functions ---
+        async function resetVotesForVoter(voterNameToReset) {
+            if (!currentUserId || !voterNameToReset) return;
+            const voterDocRef = doc(db, VOTERS_CHOICES_COLLECTION, voterNameToReset);
+            
+            try {
+                const voterDocSnap = await getDoc(voterDocRef);
+                if (!voterDocSnap.exists()) {
+                    showModal(`${voterNameToReset} chưa có dữ liệu bình chọn để hoàn tác.`, () => {});
+                    return;
+                }
+
+                const voterData = voterDocSnap.data();
+                const votesToRevert = voterData.votesMade || [];
+
+                const batch = writeBatch(db);
+
+                // Decrement votes for each design this voter voted for
+                for (const designId of votesToRevert) {
+                    const designDocRef = doc(db, DESIGN_VOTES_COLLECTION, designId);
+                    const designDocSnap = await getDoc(designDocRef); // Need to get current votes
+                    if (designDocSnap.exists()) {
+                        const currentDesignVotes = designDocSnap.data().votes || 0;
+                        batch.update(designDocRef, { votes: Math.max(0, currentDesignVotes - 1) });
+                    }
+                }
+
+                // Reset voter's state
+                batch.update(voterDocRef, { votesMade: [], votesRemaining: 3 });
+
+                await batch.commit();
+                showModal(`Đã hoàn tác tất cả phiếu bầu cho ${voterNameToReset}. Họ hiện có 3 lượt bình chọn.`, () => {});
+                
+                // If the currently selected voter is the one being reset, reload their state
+                if (selectedVoterName === voterNameToReset) {
+                    await loadVoterState(voterNameToReset);
+                }
+                 // Global results will update via onSnapshot listener
+            } catch (error) {
+                console.error(`Error resetting votes for ${voterNameToReset}:`, error);
+                showModal(`Lỗi khi hoàn tác phiếu cho ${voterNameToReset}: ${error.message}`, () => {});
+            }
+        }
+
+        // Removed resetAllVotingData function
+
+        // Initial load if auth is already established quickly (e.g. from persistence)
+        if (auth.currentUser) {
+            currentUserId = auth.currentUser.uid;
+            firebaseUserIdEl.textContent = currentUserId;
+            console.log("User already signed in from persistence:", currentUserId);
+            initializeVotingData();
+            loadVotersDropdown();
+            listenToAllVotes();
+        } else {
+            // signIn will be called by onAuthStateChanged if user is not signed in
+            console.log("No user signed in initially, waiting for onAuthStateChanged.");
+        }
+
+    </script>
+</body>
+</html>
